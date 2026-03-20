@@ -65,12 +65,6 @@ Projekt je rozdělen do několika částí:
 * Python 3.10+
 * Git nainstalovaný a dostupný v PATH
 
-## Licence
-
-MIT (nebo jiná dle tvého výběru)
-
----
-
 ## Poznámky
 
 * Ujisti se, že spouštíš `shgit` uvnitř platného Git repozitáře.
