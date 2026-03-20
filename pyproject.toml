@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shgit"
+version = "0.1.0"
+description = "A Python-native Git TUI"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+  { name = "Jaroslav Josef Černý", email = "jaroslav.cerny@student.sps-cl.cz" }
+]
+dependencies = [
+  "textual>=0.58",
+  "rich>=13.7",
+  "dulwich>=0.22",
+]
+
+[project.scripts]
+shgit = "shgit.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+# This automatically finds 'shgit' inside 'src'
+where = ["src"]
+
+[tool.setuptools.package-data]
+shgit = ["*.tcss"]

@@ -1,0 +1,36 @@
+Screen {
+    layout: vertical;
+    background: #1e1e1e;
+}
+
+Header { dock: top; height: 3; background: #2d2d2d; color: white; }
+Footer { dock: bottom; height: 3; background: #2d2d2d; color: white; }
+
+#main-container { height: 1fr; layout: horizontal; }
+#left-column { width: 50%; height: 1fr; layout: vertical; }
+#right-column { width: 1fr; height: 1fr; layout: vertical; }
+
+#status-pane { height: 3; border: solid white; }
+#files-container { height: 5; layout: horizontal; }
+#staged-pane, #changes-pane { height: 5; width: 1fr; border: solid white; overflow: auto; }
+#branches-pane { height: 4; border: solid white; }
+#commits-pane { height: 1fr; border: solid white; }
+#stash-pane { height: 3; border: solid white; }
+#patch-scroll-container { height: 1fr; border: solid white; overflow: auto; }
+#command-log-pane { height: 6; border: solid white; }
+
+/* Focus States */
+Static:focus, ListView:focus, ScrollableContainer:focus {
+    border: solid green;
+}
+
+ListItem.current-branch, ListItem:focus, ListItem.--highlight {
+    background: #404040;
+    color: white;
+}
+
+#commits-pane ListItem.highlighted-commit {
+    background: #505050;
+    color: white;
+    text-style: bold;
+}
