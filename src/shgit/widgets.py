@@ -1,47 +1,59 @@
 from __future__ import annotations
-from textual.widgets import ListItem, ListView, Static
-from rich.text import Text
-from rich.syntax import Syntax
+
 from rich.console import Group
+from rich.syntax import Syntax
+from rich.text import Text
+from textual.widgets import ListItem, ListView, Static
+
 from .git_service import BranchInfo, CommitInfo, FileStatus
+
 
 class StatusPane(Static):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.border_title = "Status"
-    
+
     def update_status(self, branch: str, repo_path: str) -> None:
-        repo_name = repo_path.split('/')[-1]
+        repo_name = repo_path.split("/")[-1]
         status_text = Text()
         status_text.append("✓ ", style="green")
         status_text.append(f"{repo_name} → {branch}", style="white")
         self.update(status_text)
 
+
 class StagedPane(ListView):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.border_title = "Staged Changes"
-        self.show_cursor = False
-    
+
     def update_files(self, files: list[FileStatus]) -> None:
         self.clear()
         staged_files = [f for f in files if f.staged]
         if not staged_files:
             self.append(ListItem(Static(Text("No staged files", style="dim white"))))
             return
-        
+
         for f in staged_files:
             text = Text()
-            style = "green" if f.status in ["modified", "staged"] else "red" if f.status == "deleted" else "blue"
+            style = (
+                "green"
+                if f.status in ["modified", "staged"]
+                else "red"
+                if f.status == "deleted"
+                else "blue"
+            )
             text.append(f"{f.status[0].upper()} ", style=style)
             text.append(f.path, style="white")
-            self.append(ListItem(Static(text)))
+
+            item = ListItem(Static(text))
+            item.file_data = f
+            self.append(item)
+
 
 class ChangesPane(ListView):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.border_title = "Changes"
-        self.show_cursor = False
 
     def update_files(self, files: list[FileStatus]) -> None:
         self.clear()
@@ -49,20 +61,24 @@ class ChangesPane(ListView):
         if not unstaged:
             self.append(ListItem(Static(Text("No changed files", style="dim white"))))
             return
-        
+
         for f in unstaged:
             text = Text()
             char = "U" if f.status == "untracked" else f.status[0].upper()
             color = "cyan" if f.status == "untracked" else "yellow"
             text.append(f"{char} ", style=color)
             text.append(f.path, style="white")
-            self.append(ListItem(Static(text)))
+
+            item = ListItem(Static(text))
+            item.file_data = f
+            self.append(item)
+
 
 class BranchesPane(ListView):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.border_title = "Local branches"
-    
+
     def set_branches(self, branches: list[BranchInfo], current_branch: str) -> None:
         self.clear()
         for branch in branches:
@@ -74,6 +90,7 @@ class BranchesPane(ListView):
             if is_current:
                 item.add_class("current-branch")
             self.append(item)
+
 
 class CommitsPane(ListView):
     def __init__(self, *args, **kwargs) -> None:
@@ -93,7 +110,9 @@ class CommitsPane(ListView):
             self._update_highlighting(highlighted)
 
     def _update_highlighting(self, index: int | None) -> None:
-        if self._last_highlighted is not None and self._last_highlighted < len(self.children):
+        if self._last_highlighted is not None and self._last_highlighted < len(
+            self.children
+        ):
             self.children[self._last_highlighted].remove_class("highlighted-commit")
         if index is not None and index < len(self.children):
             item = self.children[index]
@@ -115,6 +134,7 @@ class CommitsPane(ListView):
             text.append(f" {commit.summary[:50]}", style="white")
             self.append(ListItem(Static(text)))
 
+
 class StashPane(Static):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -122,6 +142,7 @@ class StashPane(Static):
 
     def update_stash(self, count: int) -> None:
         self.update(Text(f"-{count} of {count}-", style="white"))
+
 
 class PatchPane(Static):
     def __init__(self, *args, **kwargs) -> None:
@@ -135,6 +156,7 @@ class PatchPane(Static):
             self.update(Group(Text(header, style="white"), syntax))
         else:
             self.update(Text(header + (diff_text or "No diff"), style="white"))
+
 
 class CommandLogPane(Static):
     def __init__(self, *args, **kwargs) -> None:

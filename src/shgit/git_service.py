@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
+from dulwich import porcelain
+from dulwich.errors import NotGitRepository
 from dulwich.objects import Commit
 from dulwich.repo import Repo
-from dulwich.errors import NotGitRepository
-import stat
 
 @dataclass
 class BranchInfo:
@@ -24,11 +25,11 @@ class CommitInfo:
 @dataclass
 class FileStatus:
     path: str
-    status: str  
+    status: str
 
-    staged: bool  
+    staged: bool
 
-    unstaged: bool = False  
+    unstaged: bool = False
 
 class GitService:
     def __init__(self, start_dir: Path | str = ".") -> None:
@@ -66,7 +67,6 @@ class GitService:
         is_ignored = False
 
         for line in gitignore_lines:
-
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
@@ -85,15 +85,14 @@ class GitService:
             fnmatch_pattern = pattern.replace("**", "*")
 
             if pattern.startswith("/"):
-
                 pattern = pattern[1:]
                 fnmatch_pattern = fnmatch_pattern[1:]
 
-                if fnmatch.fnmatch(normalized_path, fnmatch_pattern) or \
-                   normalized_path.startswith(pattern + "/"):
+                if fnmatch.fnmatch(
+                    normalized_path, fnmatch_pattern
+                ) or normalized_path.startswith(pattern + "/"):
                     is_ignored = not is_negation
             else:
-
                 matched = False
 
                 if fnmatch.fnmatch(normalized_path, fnmatch_pattern):
@@ -101,8 +100,9 @@ class GitService:
 
                 for i in range(len(path_parts)):
                     check_path = "/".join(path_parts[i:])
-                    if fnmatch.fnmatch(check_path, fnmatch_pattern) or \
-                       fnmatch.fnmatch(path_parts[i], fnmatch_pattern):
+                    if fnmatch.fnmatch(check_path, fnmatch_pattern) or fnmatch.fnmatch(
+                        path_parts[i], fnmatch_pattern
+                    ):
                         matched = True
                         break
 
@@ -120,7 +120,9 @@ class GitService:
         result.sort(key=lambda b: b.name.lower())
         return result
 
-    def _iter_commits(self, head_sha: bytes, max_count: int = 100) -> Iterable[Tuple[bytes, Commit]]:
+    def _iter_commits(
+        self, head_sha: bytes, max_count: int = 100
+    ) -> Iterable[Tuple[bytes, Commit]]:
         seen = set()
         stack = [head_sha]
         while stack and len(seen) < max_count:
@@ -137,7 +139,11 @@ class GitService:
         head = self.repo.refs[ref]
         commits: List[CommitInfo] = []
         for sha, commit in self._iter_commits(head, max_count=max_count):
-            author = commit.author.decode(errors="replace") if isinstance(commit.author, (bytes, bytearray)) else str(commit.author)
+            author = (
+                commit.author.decode(errors="replace")
+                if isinstance(commit.author, (bytes, bytearray))
+                else str(commit.author)
+            )
             summary = commit.message.split(b"\n", 1)[0].decode(errors="replace")
             commits.append(
                 CommitInfo(
@@ -157,8 +163,9 @@ class GitService:
             return "<root commit>"
         parent = self.repo[parents[0]]
 
-        from dulwich.patch import write_tree_diff
         import io
+
+        from dulwich.patch import write_tree_diff
 
         buf = io.BytesIO()
         write_tree_diff(buf, self.repo.object_store, parent.tree, commit.tree)
@@ -166,18 +173,109 @@ class GitService:
 
         return diff_text
 
+    def stage_file(self, file_path: str) -> None:
+        """Stages a file to the Git index (equivalent to 'git add')."""
+        porcelain.add(repo=self.repo, paths=[file_path])
+
+    def unstage_file(self, file_path: str) -> None:
+        """Unstages a file from the Git index (equivalent to 'git reset HEAD <file>')."""
+        porcelain.remove(repo=self.repo, paths=[file_path], cached=True)
+
+    def commit(
+        self,
+        message: str,
+        author: Optional[str] = None,
+        committer: Optional[str] = None,
+    ) -> str:
+        """
+        Commits currently staged changes (the index) to the repository.
+
+        Args:
+            message: The commit message.
+            author: Optional string in "Name <email>" format.
+            committer: Optional string in "Name <email>" format (defaults to author).
+
+        Returns:
+            The hex string SHA of the newly created commit.
+        """
+        import time
+
+        from dulwich.objects import Commit
+
+        object_store = self.repo.object_store
+        index = self.repo.open_index()
+        tree_id = index.commit(object_store)
+
+        default_user = b"GitService User <unknown@example.com>"
+        author_bytes = author.encode("utf-8") if author else default_user
+        committer_bytes = (
+            committer.encode("utf-8") if committer else (author_bytes or default_user)
+        )
+
+        if not message.endswith("\n"):
+            message += "\n"
+        message_bytes = message.encode("utf-8")
+
+        parents = []
+        try:
+            head_sha = self.repo.refs[b"HEAD"]
+            resolved_head = self.repo.refs.read_ref(b"HEAD")
+            if resolved_head:
+                parents.append(self.repo.refs[b"HEAD"])
+        except KeyError:
+            pass
+
+        commit_obj = Commit()
+        commit_obj.tree = tree_id
+        commit_obj.parents = parents
+        commit_obj.author = author_bytes
+        commit_obj.committer = committer_bytes
+
+        current_time = int(time.time())
+        tz_offset = -time.timezone if time.daylight == 0 else -time.altzone
+        commit_obj.commit_time = current_time
+        commit_obj.author_time = current_time
+        commit_obj.commit_timezone = tz_offset
+        commit_obj.author_timezone = tz_offset
+        commit_obj.message = message_bytes
+
+        object_store.add_object(commit_obj)
+
+        try:
+            head_ref = self.repo.refs.read_ref(b"HEAD")
+            if head_ref is None:
+                head_ref = b"refs/heads/main"
+            self.repo.refs[b"HEAD"] = head_ref
+
+            self.repo.refs[head_ref] = commit_obj.id
+        except Exception as e:
+            raise RuntimeError(f"Failed to update HEAD reference: {e}")
+
+        return commit_obj.id.hex()
+
+    def stage_files(self, paths: List[str]) -> None:
+        """
+        A helper method to stage file paths (equivalent to `git add`).
+        This makes testing the commit logic much easier.
+        """
+        normalized_paths = [p.replace("\\", "/") for p in paths]
+        self.repo.stage(normalized_paths)
+
     def get_file_status(self) -> List[FileStatus]:
         """Get status of files in working directory."""
+        import os
+
         from dulwich.index import Index
         from dulwich.object_store import tree_lookup_path
         from dulwich.objects import Blob
-        import os
 
         files: List[FileStatus] = []
 
         try:
             index = Index(str(self.repo_path / ".git" / "index"))
-            index_entries = {path.decode(errors="replace"): entry for path, entry in index.items()}
+            index_entries = {
+                path.decode(errors="replace"): entry for path, entry in index.items()
+            }
         except Exception:
             index_entries = {}
 
@@ -201,8 +299,9 @@ class GitService:
             full_path = self.repo_path / path
 
             if not full_path.exists():
-
-                files.append(FileStatus(path=path, status="deleted", staged=True, unstaged=False))
+                files.append(
+                    FileStatus(path=path, status="deleted", staged=True, unstaged=False)
+                )
                 continue
 
             try:
@@ -223,20 +322,18 @@ class GitService:
                         return None
                     name = path_parts[0].encode()
                     if name in tree:
-                        entry = tree[name]  
+                        entry = tree[name]
 
                         mode, sha = entry
                         if len(path_parts) == 1:
-
-                            return sha  
+                            return sha
 
                         else:
-
                             if stat.S_ISDIR(mode):
                                 subtree_obj = self.repo[sha]
                                 return find_in_tree(subtree_obj, path_parts[1:])
                             else:
-                                return None  
+                                return None
 
                     return None
 
@@ -248,12 +345,16 @@ class GitService:
 
             if head_sha is not None:
                 if head_sha != index_sha:
-
-                    files.append(FileStatus(path=path, status="modified", staged=True, unstaged=False))
+                    files.append(
+                        FileStatus(
+                            path=path, status="modified", staged=True, unstaged=False
+                        )
+                    )
 
             else:
-
-                files.append(FileStatus(path=path, status="staged", staged=True, unstaged=False))
+                files.append(
+                    FileStatus(path=path, status="staged", staged=True, unstaged=False)
+                )
 
         def walk_directory(path: Path, base: Path):
             """Recursively walk directory."""
@@ -272,7 +373,6 @@ class GitService:
                         rel_path = str(item.relative_to(base)).replace("\\", "/")
 
                         if rel_path not in processed_files:
-
                             head_sha = None
                             if head_tree:
 
@@ -282,21 +382,22 @@ class GitService:
                                         return None
                                     name = path_parts[0].encode()
                                     if name in tree:
-                                        entry = tree[name]  
+                                        entry = tree[name]
 
                                         mode, sha = entry
                                         if len(path_parts) == 1:
-
-                                            return sha  
+                                            return sha
 
                                         else:
-
                                             import stat
+
                                             if stat.S_ISDIR(mode):
                                                 subtree_obj = self.repo[sha]
-                                                return find_in_tree(subtree_obj, path_parts[1:])
+                                                return find_in_tree(
+                                                    subtree_obj, path_parts[1:]
+                                                )
                                             else:
-                                                return None  
+                                                return None
 
                                     return None
 
@@ -307,25 +408,34 @@ class GitService:
                                     head_sha = None
 
                             if head_sha is not None:
-
                                 with open(item, "rb") as f:
                                     file_data = f.read()
                                     file_sha = calculate_blob_sha(file_data)
 
                                 if head_sha != file_sha:
-
-                                    files.append(FileStatus(path=rel_path, status="modified", staged=False, unstaged=True))
+                                    files.append(
+                                        FileStatus(
+                                            path=rel_path,
+                                            status="modified",
+                                            staged=False,
+                                            unstaged=True,
+                                        )
+                                    )
 
                             else:
-
                                 if not self._is_ignored(rel_path):
-                                    files.append(FileStatus(path=rel_path, status="untracked", staged=False, unstaged=False))
+                                    files.append(
+                                        FileStatus(
+                                            path=rel_path,
+                                            status="untracked",
+                                            staged=False,
+                                            unstaged=False,
+                                        )
+                                    )
                         else:
-
                             if rel_path in index_entries:
                                 entry = index_entries[rel_path]
                                 try:
-
                                     with open(item, "rb") as f:
                                         file_data = f.read()
                                         file_sha = calculate_blob_sha(file_data)
@@ -334,7 +444,6 @@ class GitService:
 
                                     head_sha = None
                                     if head_tree:
-
                                         path_parts = rel_path.split("/")
                                         try:
 
@@ -350,24 +459,47 @@ class GitService:
                                                     else:
                                                         if stat.S_ISDIR(mode):
                                                             subtree_obj = self.repo[sha]
-                                                            return find_in_tree_local(subtree_obj, path_parts[1:])
+                                                            return find_in_tree_local(
+                                                                subtree_obj,
+                                                                path_parts[1:],
+                                                            )
                                                         else:
                                                             return None
                                                 return None
-                                            head_sha = find_in_tree_local(head_tree, path_parts)
+
+                                            head_sha = find_in_tree_local(
+                                                head_tree, path_parts
+                                            )
                                         except (KeyError, TypeError):
                                             head_sha = None
 
                                     if index_sha != file_sha:
-
                                         if head_sha is None:
-
-                                            if not any(f.path == rel_path and not f.staged for f in files):
-                                                files.append(FileStatus(path=rel_path, status="modified", staged=False, unstaged=True))
+                                            if not any(
+                                                f.path == rel_path and not f.staged
+                                                for f in files
+                                            ):
+                                                files.append(
+                                                    FileStatus(
+                                                        path=rel_path,
+                                                        status="modified",
+                                                        staged=False,
+                                                        unstaged=True,
+                                                    )
+                                                )
                                         elif file_sha != head_sha:
-
-                                            if not any(f.path == rel_path and not f.staged for f in files):
-                                                files.append(FileStatus(path=rel_path, status="modified", staged=False, unstaged=True))
+                                            if not any(
+                                                f.path == rel_path and not f.staged
+                                                for f in files
+                                            ):
+                                                files.append(
+                                                    FileStatus(
+                                                        path=rel_path,
+                                                        status="modified",
+                                                        staged=False,
+                                                        unstaged=True,
+                                                    )
+                                                )
 
                                 except Exception:
                                     pass
@@ -379,19 +511,14 @@ class GitService:
         file_dict: dict[str, FileStatus] = {}
         for file_status in files:
             if file_status.path in file_dict:
-
                 existing = file_dict[file_status.path]
 
                 if existing.staged != file_status.staged:
-
                     file_dict[file_status.path] = FileStatus(
                         path=file_status.path,
-                        status="modified",  
-
-                        staged=True,  
-
-                        unstaged=True  
-
+                        status="modified",
+                        staged=True,
+                        unstaged=True,
                     )
 
                 elif file_status.status == "modified" or existing.status != "modified":
@@ -403,22 +530,16 @@ class GitService:
 
         files_with_changes = []
         for f in files:
-
             if f.staged or f.unstaged:
-
                 files_with_changes.append(f)
             elif f.status == "untracked":
-
                 if not self._is_ignored(f.path):
                     files_with_changes.append(f)
             elif f.status == "deleted":
-
                 files_with_changes.append(f)
             elif f.status == "staged":
-
                 files_with_changes.append(f)
 
         files_with_changes.sort(key=lambda f: f.path)
 
         return files_with_changes
-
