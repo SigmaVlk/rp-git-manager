@@ -1,18 +1,26 @@
 from __future__ import annotations
+
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Container, ScrollableContainer
-from textual.widgets import Footer, Header, ListView
-from textual.reactive import reactive
 from textual.binding import Binding
+from textual.containers import Container, Horizontal, ScrollableContainer
+from textual.reactive import reactive
+from textual.widgets import Footer, Header, ListView
 
 from .git_service import GitService
 from .widgets import (
-    StatusPane, StagedPane, ChangesPane, BranchesPane, 
-    CommitsPane, StashPane, PatchPane, CommandLogPane
+    BranchesPane,
+    ChangesPane,
+    CommandLogPane,
+    CommitsPane,
+    PatchPane,
+    StagedPane,
+    StashPane,
+    StatusPane,
 )
 
+
 class ShgitApp(App):
-    CSS_PATH = "styles.tcss"  
+    CSS_PATH = "styles.tcss"
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -68,9 +76,13 @@ class ShgitApp(App):
 
     def action_down(self) -> None:
         if self.commits_pane.has_focus:
-            self.commits_pane.index = min((self.commits_pane.index or 0) + 1, len(self.commits) - 1)
+            self.commits_pane.index = min(
+                (self.commits_pane.index or 0) + 1, len(self.commits) - 1
+            )
         elif self.branches_pane.has_focus:
-            self.branches_pane.index = min((self.branches_pane.index or 0) + 1, len(self.branches) - 1)
+            self.branches_pane.index = min(
+                (self.branches_pane.index or 0) + 1, len(self.branches) - 1
+            )
 
     def action_up(self) -> None:
         if self.commits_pane.has_focus:
@@ -100,11 +112,16 @@ class ShgitApp(App):
         if self.commits:
             self.show_commit_diff(0)
 
+    def update_status_info(self) -> None:
+        if self.active_branch:
+            self.status_pane.update_status(self.active_branch, self.repo_path)
+
     def show_commit_diff(self, index: int) -> None:
         if 0 <= index < len(self.commits):
             ci = self.commits[index]
             diff = self.git.get_commit_diff(ci.sha)
             self.patch_pane.show_commit_info(ci, diff)
+
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.list_view is self.branches_pane:
             index = event.index
@@ -116,7 +133,7 @@ class ShgitApp(App):
             self.selected_commit_index = event.index
             self.show_commit_diff(event.index)
 
+
 def run_textual(repo_dir: str = ".") -> None:
     app = ShgitApp(repo_dir)
     app.run()
-
