@@ -7,8 +7,15 @@ from .app import run_textual
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="shgit", description="Python-native LazyGit-like TUI")
-    parser.add_argument("path", nargs="?", default=".", help="Path to a Git repository (defaults to current directory)")
+    parser = argparse.ArgumentParser(
+        prog="shgit", description="Python-native LazyGit-like TUI"
+    )
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=".",
+        help="Path to a Git repository (defaults to current directory)",
+    )
     args = parser.parse_args()
 
     repo_path = Path(args.path).resolve()
@@ -17,5 +24,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
