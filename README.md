@@ -28,9 +28,10 @@ Lehká terminálová aplikace (TUI) pro práci s Git repozitáři přímo z př�
 ## Instalace
 
 ```bash id="q2n8vk"
-python3 -m venv .venv
+git clone https://github.com/SigmaVlk/rp-git-manager.git
+cd rp-git-manager
+python -m venv .venv
 source .venv/bin/activate
-pip install -e .
 ```
 
 ## Použití
