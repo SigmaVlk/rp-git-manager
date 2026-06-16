@@ -32,6 +32,7 @@ git clone https://github.com/SigmaVlk/rp-git-manager.git
 cd rp-git-manager
 python -m venv .venv
 source .venv/bin/activate
+pip install -e .
 ```
 
 ## Použití
